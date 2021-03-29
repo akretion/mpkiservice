@@ -42,7 +42,7 @@ def get_current_org(credentials: HTTPBasicCredentials = Depends(security)):
     return get_current_credentials(credentials).username
 
 
-@app.get("/certs/{serial}")
+@app.get("/certs")
 async def get_cert(serial: str, org: str = Depends(get_current_org)):
     certificate = find_certificate_index(serial)
     if not certificate:
@@ -73,7 +73,7 @@ async def create_cert(
     return create_certificate(certificate, partner, location, passphrase)
 
 
-@app.delete("/certs/{serial}")
+@app.delete("/certs")
 async def revoke_cert(serial: str, passphrase: str = Depends(get_current_passphrase)):
     certificate = await get_cert(serial)
     res = revoke_certificate(certificate, passphrase)

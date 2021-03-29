@@ -151,6 +151,8 @@ def random_string(length):
 
 FNULL = open(os.devnull, "w")
 
+def sanitize(string):
+    return string.replace("/", "?")
 
 def create_certificate(
     certificate: Certificate,
@@ -163,15 +165,7 @@ def create_certificate(
     cert_path = os.path.join(settings.CERT_BASE_DIR, token)
     os.mkdir(cert_path, 0o744)
 
-    subject = "/C=%(C)s/ST=%(ST)s/O=%(O)s/OU=%(OU)s/CN=%(CN)s/emailAddress=%(EMAIL)s" % {
-        "C": "FR",
-        "ST": location.zipcode,
-        # 'L': location.city,
-        "O": location.company,
-        "OU": location.name,
-        "CN": certificate.name,
-        "EMAIL": partner.email,
-    }
+    subject = f"/C=FR/ST={sanitize(location.zipcode)}/O={sanitize(location.company)}/OU={sanitize(location.name)}/CN={sanitize(certificate.name)}/emailAddress={partner.email}".encode("ascii", "replace")
 
     key = os.path.join(cert_path, settings.CLIENT_KEY)
     csr = os.path.join(cert_path, settings.CLIENT_CSR)
@@ -197,7 +191,7 @@ def create_certificate(
         "ca",
         "-batch",
         "-config",
-        settings.OPENSSL_CONF,
+        os.path.abspath(settings.OPENSSL_CONF),
         "-in",
         csr,
         "-days",
@@ -209,7 +203,7 @@ def create_certificate(
     if ret != 0:
         raise subprocess.CalledProcessError(subject, ret)
 
-    certificate = find_certificate_index(subject)
+    certificate = find_certificate_index(subject.decode("ascii"))
     src = os.path.join(settings.PKI_DIR, "newcerts", f"{certificate.serial}.pem")
     if not src:
         raise Exception("Cert not found (%s)" % subject)
