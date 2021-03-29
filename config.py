@@ -2,6 +2,7 @@
 # @author Pierrick Brun <pierrick.brun@akretion.com>
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
+import pathlib
 from functools import lru_cache
 
 from pydantic import (BaseModel, BaseSettings, DirectoryPath, EmailStr, Field,
@@ -33,7 +34,7 @@ class Settings(BaseSettings):
     CERT_PUBLIC_DIR: DirectoryPath = "./public/certs"
     CERT_BASE_DIR: DirectoryPath = "./ca/certs"
     PKI_DIR: DirectoryPath = "./ca"
-    CRL_FILE: FilePath = "./ca/client.crl"
+    CRL_FILE: pathlib.Path = "./ca/client.crl"  # Created if it does not exist
     CRLNUM_FILE: FilePath = "./ca/crlnumber"  # echo "01" > ca/crlnumber
     INDEX_FILE: FilePath = "./ca/index.txt"
     OPENSSL_CONF: FilePath = "./ca/openssl.cnf"

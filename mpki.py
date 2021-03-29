@@ -151,8 +151,10 @@ def random_string(length):
 
 FNULL = open(os.devnull, "w")
 
+
 def sanitize(string):
     return string.replace("/", "?")
+
 
 def create_certificate(
     certificate: Certificate,
@@ -165,7 +167,9 @@ def create_certificate(
     cert_path = os.path.join(settings.CERT_BASE_DIR, token)
     os.mkdir(cert_path, 0o744)
 
-    subject = f"/C=FR/ST={sanitize(location.zipcode)}/O={sanitize(location.company)}/OU={sanitize(location.name)}/CN={sanitize(certificate.name)}/emailAddress={partner.email}".encode("ascii", "replace")
+    subject = f"/C=FR/ST={sanitize(location.zipcode)}/O={sanitize(location.company)}/OU={sanitize(location.name)}/CN={sanitize(certificate.name)}/emailAddress={partner.email}".encode(
+        "ascii", "replace"
+    )
 
     key = os.path.join(cert_path, settings.CLIENT_KEY)
     csr = os.path.join(cert_path, settings.CLIENT_CSR)
