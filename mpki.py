@@ -243,7 +243,7 @@ def create_certificate(
     p12_dir = cert_path.split(os.sep)[-1]
     p12_www_file = os.path.join(settings.CERT_PUBLIC_DIR, p12_dir, settings.CLIENT_P12)
     os.makedirs(os.path.dirname(p12_www_file), exist_ok=True)
-    os.symlink(p12_file, p12_www_file)
+    copyfile(p12_file, p12_www_file)
     cert_url = f"{settings.CERT_DOWNLOAD_URL}/{p12_dir}/{settings.CLIENT_P12}"
 
     send_email(partner, certificate, cert_url)
