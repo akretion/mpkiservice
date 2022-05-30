@@ -199,7 +199,7 @@ def create_certificate(
         "-in",
         csr,
         "-days",
-        "365",
+        "1095",  # 365 * 3 = 3 years TODO: make it configurable
         "-passin",
         "pass:" + passphrase,
     ]
