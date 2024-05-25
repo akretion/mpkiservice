@@ -2,51 +2,60 @@
 # @author Pierrick Brun <pierrick.brun@akretion.com>
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
-import pathlib
-from functools import lru_cache
+from typing import Tuple, Type
 
-from pydantic import (BaseModel, BaseSettings, DirectoryPath, EmailStr, Field,
-                      FilePath, HttpUrl, SecretStr, constr, validator)
+from pydantic import BaseModel, DirectoryPath, EmailStr, HttpUrl, SecretStr
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
+
+
+class SMTP(BaseModel):
+    host: str
+    port: int
+    user: str
+    password: SecretStr
+    email_from: EmailStr
+    email_cc: EmailStr = None
+    email_subject: str
+
+
+class SMS(BaseModel):
+    url: HttpUrl
+    account: str
+    login: str
+    password: SecretStr
+
+
+class Authority(BaseModel):
+    name: str
+    passphrase_crypt: str
 
 
 class Settings(BaseSettings):
-    # EMAIL PARAMETERS
-    SMTP_HOST: str
-    SMTP_PORT: int
-    SMTP_USER: str
-    SMTP_PASSWORD: SecretStr  # = Field(None, env="SMTP_PASSWORD") #TODO: FIXUP
-    EMAIL_FROM: EmailStr
-    EMAIL_CC: EmailStr = None
-    EMAIL_SUBJECT: str
+    smtp: SMTP
+    sms: SMS
+    authorities: list[Authority]
+    cert_public_dir: DirectoryPath = "/var/www/mpki"
+    pki_dir: DirectoryPath = "./ca"
+    provider_name: str = "Akretion"
+    base_cert_download_url: HttpUrl
 
-    # SMS PARAMETERS
-    SMS_URL: HttpUrl
-    SMS_ACCOUNT: str
-    SMS_LOGIN: str
-    SMS_PASSWORD: SecretStr  # = Field(None, env="SMS_PASSWORD")
+    model_config = SettingsConfigDict(yaml_file="config.yaml")
 
-    # CERTIFICATE PARAMETERS
-    CLIENT_KEY: str = "client.key"
-    CLIENT_CSR: str = "client.csr"
-    CLIENT_CRT: str = "client.crt"
-    CLIENT_P12: str = "client.p12"
-    CLIENT_PASS: str = "client.pass"
-    CERT_PUBLIC_DIR: DirectoryPath = "./public/certs"
-    CERT_BASE_DIR: DirectoryPath = "./ca/certs"
-    PKI_DIR: DirectoryPath = "./ca"
-    CRL_FILE: pathlib.Path = "./ca/client.crl"  # Created if it does not exist
-    CRLNUM_FILE: FilePath = "./ca/crlnumber"  # echo "01" > ca/crlnumber
-    INDEX_FILE: FilePath = "./ca/index.txt"
-    OPENSSL_CONF: FilePath = "./ca/openssl.cnf"
-    PROVIDER_NAME: str = "Akretion"
-    CERT_DOWNLOAD_URL: HttpUrl
-    PASSPHRASE_CRYPT: str
-
-    class Config:
-        env_file = ".env"
-        secrets_dir = ".secrets"
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: Type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> Tuple[PydanticBaseSettingsSource, ...]:
+        return (YamlConfigSettingsSource(settings_cls),)
 
 
-@lru_cache()
-def get_settings():
-    return Settings()
+settings = Settings()

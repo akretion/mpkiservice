@@ -17,6 +17,15 @@ classifiers = [
 ]
 readme = "README.md"
 dependencies = [
+  "fastapi",
+  "uvicorn",
+  "pydantic[email]",
+  "pydantic[dotenv]",
+  "phonenumbers",
+  "requests",
+  "passlib",
+  "pycryptodome",
+  "pydantic-settings",
 ]
 requires-python = ">=3.7"
 dynamic = ["version"]
@@ -63,6 +72,10 @@ exclude = [
 
 [tool.ruff.lint.isort]
 known-first-party = []
+
+[tool.ruff.lint.flake8-bugbear]
+# Allow default arguments like, e.g., `data: List[str] = fastapi.Query(None)`.
+extend-immutable-calls = ["fastapi.Depends"]
 
 
 [tool.coverage.run]
