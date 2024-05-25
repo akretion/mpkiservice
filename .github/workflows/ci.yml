@@ -29,6 +29,7 @@ jobs:
           python -m pip install .[test]
       - name: "Run pytest targets for ${{ matrix.python-version }}"
         run: |
-          coverage run --source src -m pytest tests -v
+          cd tests
+          coverage run --source src -m pytest . -v
           coverage xml
       - uses: codecov/codecov-action@v3
