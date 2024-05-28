@@ -30,6 +30,8 @@ jobs:
       - name: "Run pytest targets for ${{ matrix.python-version }}"
         run: |
           cd tests
+          export MPKISERVICE_CONFIG_PATH=config.yaml
+          coverage run --source src -m mpkiservice-cli add bob incroyableeponge supersecret
           coverage run --source src -m pytest . -v
           coverage xml
       - uses: codecov/codecov-action@v3

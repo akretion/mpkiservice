@@ -1,3 +1,5 @@
+import logging
+
 from Crypto import Random
 from Crypto.Cipher import AES
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -15,7 +17,15 @@ from .mpki import (
     revoke_certificate,
 )
 
-htPass = HtpasswdFile(".htpasswd")
+_logger = logging.getLogger(__name__)
+
+
+# When running the first add "org" the .htpasswd may no exist
+try:
+    htPass = HtpasswdFile(settings.htpasswd_path)
+except FileNotFoundError:
+    _logger.error("htpasswd is missing, the service can not run properly")
+    htPass = None
 
 app = FastAPI()
 
@@ -37,10 +47,9 @@ def get_current_passphrase(
     credentials: HTTPBasicCredentials = Depends(security),
 ):
     key = get_current_credentials(credentials).password.encode("utf8")
-    for authority in settings.authorities:
-        if authority.name == credentials.username:
-            passphrase_crypt = authority.passphrase_crypt
-            break
+    vals = settings._read_passphrase_crypt()
+    if credentials.username in vals:
+        passphrase_crypt = vals[credentials.username]
     else:
         raise Exception(f"No authority with the name {credentials.username}")
     iv = Random.new().read(AES.block_size)

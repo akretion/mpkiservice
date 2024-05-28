@@ -204,10 +204,9 @@ def create_certificate(
     location: Localisation,
     passphrase,
 ):
-    token = random_string(20)
-    ca_path = os.path.join(settings.pki_dir, org)
-    cert_path = os.path.join(ca_path, "certs", token)
-    os.makedirs(cert_path, 0o744)
+    authority = settings.authority(org)
+    cert = authority.new_cert()
+    os.makedirs(cert.dir_path, 0o744)
 
     subject = (
         f"/C=FR/ST={sanitize(location.zipcode)}/O={sanitize(location.company)}"
@@ -215,8 +214,6 @@ def create_certificate(
         f"/emailAddress={partner.email}"
     ).encode("ascii", "replace")
 
-    key = os.path.join(cert_path, CLIENT_KEY)
-    csr = os.path.join(cert_path, CLIENT_CSR)
     run_cmd(
         [
             "openssl",
@@ -225,47 +222,41 @@ def create_certificate(
             "-newkey",
             "rsa:4096",
             "-keyout",
-            key,
+            cert.client_key_path,
             "-out",
-            csr,
+            cert.client_csr_path,
             "-subj",
             subject,
         ]
     )
 
-    openssl_conf_path = os.path.abspath(
-        os.path.join(settings.pki_dir, org, "openssl.cnf")
-    )
     run_cmd(
         [
             "openssl",
             "ca",
             "-batch",
             "-config",
-            openssl_conf_path,
+            authority.openssl_conf_path,
             "-in",
-            csr,
+            cert.client_csr_path,
             "-days",
-            "1095",  # 365 * 3 = 3 years TODO: make it configurable
+            "1095",  # 365 * 3 = 3 years TODO: use value in ssl config
             "-passin",
             "pass:" + passphrase,
         ]
     )
 
     certificate = find_certificate_index(org, subject.decode("ascii"))
-    src = os.path.join(ca_path, "newcerts", f"{certificate.serial}.pem")
+    src = authority.get_cert_path(certificate.serial)
     if not src:
         raise Exception(f"Cert not found ({subject})")
     else:
-        dst = os.path.join(cert_path, CLIENT_CRT)
-        copyfile(src, dst)
+        copyfile(src, cert.client_crt_path)
 
-    crt_file = os.path.join(cert_path, CLIENT_CRT)
-    key_file = os.path.join(cert_path, CLIENT_KEY)
-    p12_file = os.path.join(cert_path, CLIENT_P12)
-    pass_file = os.path.join(cert_path, CLIENT_PASS)
     password = random_string(8)
-    with os.fdopen(os.open(pass_file, os.O_WRONLY | os.O_CREAT, 0o700), "w") as f:
+    with os.fdopen(
+        os.open(cert.client_pass_path, os.O_WRONLY | os.O_CREAT, 0o700), "w"
+    ) as f:
         f.write(password)
 
     run_cmd(
@@ -274,21 +265,21 @@ def create_certificate(
             "pkcs12",
             "-export",
             "-out",
-            p12_file,
+            cert.client_p12_path,
             "-inkey",
-            key_file,
+            cert.client_key_path,
             "-in",
-            crt_file,
+            cert.client_crt_path,
             "-passout",
-            f"file:{pass_file}",
+            f"file:{cert.client_pass_path}",
         ]
     )
 
-    p12_dir = cert_path.split(os.sep)[-1]
-    p12_www_file = os.path.join(settings.cert_public_dir, org, p12_dir, CLIENT_P12)
+    CLIENT_P12 = "client.p12"  # TODO FIXME
+    p12_www_file = os.path.join(settings.cert_public_dir, org, cert.token, CLIENT_P12)
     os.makedirs(os.path.dirname(p12_www_file), exist_ok=True)
-    copyfile(p12_file, p12_www_file)
-    cert_url = f"{settings.cert_public_dir}/{org}/{p12_dir}/{CLIENT_P12}"
+    copyfile(cert.client_p12_path, p12_www_file)
+    cert_url = f"{settings.cert_public_dir}/{org}/{cert.token}/{CLIENT_P12}"
 
     send_email(partner, certificate, cert_url)
     send_sms(partner, certificate.name, password)
@@ -297,7 +288,9 @@ def create_certificate(
 
 def find_certificate_index(org, search: str):
     # Search is either subject or serial
-    with open(os.path.join(settings.pki_dir, org, INDEX_FILE)) as f:
+
+    authority = settings.authority(org)
+    with open(authority.index_file_path) as f:
         index_lines = f.readlines()
         certificate = None
         for line in index_lines:
@@ -326,19 +319,15 @@ def revoke_certificate(
     certificate: Certificate,
     passphrase: SecretStr,
 ):
-    src = os.path.join(settings.pki_dir, org, "newcerts", f"{certificate.serial}.pem")
-    openssl_conf_path = os.path.abspath(
-        os.path.join(settings.pki_dir, org, "openssl.cnf")
-    )
-    crl_file_path = os.path.abspath(os.path.join(settings.pki_dir, org, CRL_FILE))
+    authority = settings.authority(org)
     run_cmd(
         [
             "openssl",
             "ca",
             "-revoke",
-            os.path.abspath(src),
+            authority.get_cert_path(certificate.serial),
             "-config",
-            openssl_conf_path,
+            authority.openssl_conf_path,
             "-passin",
             "pass:" + passphrase,
         ]
@@ -351,9 +340,9 @@ def revoke_certificate(
             "-crldays",
             "3650",
             "-out",
-            crl_file_path,
+            authority.crl_file_path,
             "-config",
-            openssl_conf_path,
+            authority.openssl_conf_path,
             "-passin",
             "pass:" + passphrase,
         ]

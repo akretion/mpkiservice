@@ -41,6 +41,8 @@ Homepage = "https://github.com/akretion/mpkiservice"
 Source = "https://github.com/akretion/mpkiservice"
 
 [project.scripts]
+mpkiservice = "mpkiservice:main"
+mpkiservice-cli = "mpkiservice.cli:main"
 
 [tool.hatch.version]
 source = "vcs"
