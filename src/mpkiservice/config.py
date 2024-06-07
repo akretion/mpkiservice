@@ -139,6 +139,10 @@ class Authority:
             if not os.path.exists(file_path):
                 open(file_path, "a").close()
 
+        # Create crlnumber file
+        with open(jpath(self.dir_path, "crlnumber"), "w") as f:
+            f.write("01")
+
     def generate_openssl_config(self):
         with open(self.openssl_conf_path, "w") as f:
             f.write(
