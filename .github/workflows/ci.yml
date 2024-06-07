@@ -32,6 +32,6 @@ jobs:
           cd tests
           export MPKISERVICE_CONFIG_PATH=config.yaml
           mpkiservice-cli add bob incroyableeponge supersecret
-          coverage run --source src -m pytest . -v
+          coverage run --source ../src -m pytest . -v
           coverage xml
       - uses: codecov/codecov-action@v3
