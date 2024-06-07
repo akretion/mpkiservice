@@ -11,17 +11,28 @@ app = typer.Typer(rich_markup_mode="rich")
 
 
 @app.command()
-def add(authority_name: str, password: str, passphrase: str):
+def add(
+    authority_name: str,
+    password: str,
+    passphrase: str,
+    ca_country_name: str,
+    ca_state_or_province_name: str,
+    ca_organization_name: str,
+    ca_organization_unit_name: str,
+    ca_common_name: str,
+    ca_email_address: str,
+):
     # Create all necessary directory and file
     authority = settings.authority(authority_name)
     authority.generate_directory()
     authority.generate_openssl_config()
-
-    # TODO get subject
     subject = (
-        "/countryName=FR/stateOrProvinceName=Rhone Alpes"
-        "/organizationName=Akretion/organizationalUnitName=IT"
-        "/commonName=Akretion/emailAddress=akretion@example.org/"
+        f"/countryName={ca_country_name}"
+        f"/stateOrProvinceName={ca_state_or_province_name}"
+        f"/organizationName={ca_organization_name}"
+        f"/organizationalUnitName={ca_organization_unit_name}"
+        f"/commonName={ca_common_name}"
+        f"/emailAddress={ca_email_address}/"
     )
     authority.generate_private_key_and_ca(password, passphrase, subject)
 
