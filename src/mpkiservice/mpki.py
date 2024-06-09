@@ -15,7 +15,11 @@ from shutil import copyfile
 from subprocess import run
 
 import requests
+import yaml
+from Crypto import Random
+from Crypto.Cipher import AES
 from fastapi import HTTPException
+from passlib.apache import HtpasswdFile
 from phonenumbers import (
     NumberParseException,
     PhoneNumberFormat,
@@ -32,8 +36,6 @@ from pydantic import (
     constr,
     validator,
 )
-
-from .config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -74,25 +76,8 @@ SMS_BODY = """Certificat pour {cert_name}
 Mot de passe du certificat : {password}"""
 
 
-CLIENT_KEY = "client.key"
-CLIENT_CSR = "client.csr"
-CLIENT_CRT = "client.crt"
-CLIENT_P12 = "client.p12"
-CLIENT_PASS = "client.pass"
-CRL_FILE = "client.crl"  # Created if it does not exist
-CRLNUM_FILE = "crlnumber"  # echo "01" > ca/crlnumber
-INDEX_FILE = "index.txt"
-OPENSSL_CONF = "openssl.cnf"
-
-CERT_BASE_DIR: DirectoryPath = "./ca/certs"
-
-
-def file_path(authority, filename, absolute=False):
-    path = os.path.join(settings.pki_dir, authority.name)
-    if absolute:
-        return os.path.abspath(path)
-    else:
-        return path
+def jpath(*args):
+    return os.path.abspath(os.path.join(*args))
 
 
 class Partner(BaseModel):
@@ -120,59 +105,12 @@ class Localisation(BaseModel):
 
 
 class Certificate(BaseModel):
+    """Schema that represent a certificat in the API"""
+
     serial: str = None
     valid: bool = True
     name: str
     valid_until: datetime.datetime = None
-
-
-def send_email(partner, certificate, cert_url: HttpUrl):
-    body_text = EMAIL_BODY_TEXT.format(
-        partner=partner, certificate=certificate, cert_url=cert_url, settings=settings
-    )
-    body_html = EMAIL_BODY_HTML.format(
-        partner=partner, certificate=certificate, cert_url=cert_url, settings=settings
-    )
-
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = settings.smtp.email_subject
-        msg["From"] = settings.smtp.email_from
-        msg["To"] = partner.email
-        msg["Cc"] = settings.smtp.email_cc or ""
-        part1 = MIMEText(body_text, "plain", "utf-8")
-        part2 = MIMEText(body_html, "html", "utf-8")
-        msg.attach(part1)
-        msg.attach(part2)
-        server = smtplib.SMTP_SSL(settings.smtp.host, settings.smtp.port)
-        server.ehlo()
-        server.login(settings.smtp.user, settings.smtp.password.get_secret_value())
-        server.sendmail(settings.smtp.email_from, partner.email, msg.as_string())
-        logger.info(f"email sent to: {partner.email}")
-    except Exception as err:
-        logger.error(f"email not sent: {err}")
-
-
-def send_sms(partner, cert_name, password):
-    message = SMS_BODY.format(
-        cert_name=cert_name[-60:], password=password, settings=settings
-    )
-    try:
-        params = {
-            "smsAccount": settings.sms.account,
-            "login": settings.sms.login,
-            "password": settings.sms.password.get_secret_value(),
-            "from": settings.provider_name.upper(),
-            "to": partner.phone,
-            "message": message,
-            "noStop": 1,
-        }
-        params = urllib.parse.urlencode(params)
-        url = f"{settings.sms.url}?{params}"
-        requests.get(url)
-        logger.info(f"SMS sent to {partner.phone}")
-    except Exception as err:
-        logger.error(f"SMS not sent to {partner.phone}: {err}")
 
 
 def random_string(length):
@@ -197,157 +135,381 @@ def run_cmd(cmd):
         raise HTTPException(status_code=500)
 
 
-def create_certificate(
-    org,
-    certificate: Certificate,
-    partner: Partner,
-    location: Localisation,
-    passphrase,
-):
-    authority = settings.authority(org)
-    cert = authority.new_cert()
-    os.makedirs(cert.dir_path, 0o744)
+class NewCert:
+    """Python class that help to generate a new certificat"""
 
-    subject = (
-        f"/C=FR/ST={sanitize(location.zipcode)}/O={sanitize(location.company)}"
-        f"/OU={sanitize(location.name)}/CN={sanitize(certificate.name)}"
-        f"/emailAddress={partner.email}"
-    ).encode("ascii", "replace")
+    _p12_filename = "client.p12"
 
-    run_cmd(
-        [
-            "openssl",
-            "req",
-            "-nodes",
-            "-newkey",
-            "rsa:4096",
-            "-keyout",
-            cert.client_key_path,
-            "-out",
-            cert.client_csr_path,
-            "-subj",
-            subject,
-        ]
-    )
+    def __init__(self, authority):
+        super().__init__()
+        self.token = random_string(20)
+        self.dir_path = os.path.join(authority.dir_path, "certs", self.token)
 
-    run_cmd(
-        [
-            "openssl",
-            "ca",
-            "-batch",
-            "-config",
-            authority.openssl_conf_path,
-            "-in",
-            cert.client_csr_path,
-            "-days",
-            "1095",  # 365 * 3 = 3 years TODO: use value in ssl config
-            "-passin",
-            "pass:" + passphrase,
-        ]
-    )
+    @property
+    def client_key_path(self):
+        return jpath(self.dir_path, "client.key")
 
-    certificate = find_certificate_index(org, subject.decode("ascii"))
-    src = authority.get_cert_path(certificate.serial)
-    if not src:
-        raise Exception(f"Cert not found ({subject})")
-    else:
-        copyfile(src, cert.client_crt_path)
+    @property
+    def client_csr_path(self):
+        return jpath(self.dir_path, "client.csr")
 
-    password = random_string(8)
-    with os.fdopen(
-        os.open(cert.client_pass_path, os.O_WRONLY | os.O_CREAT, 0o700), "w"
-    ) as f:
-        f.write(password)
+    @property
+    def client_crt_path(self):
+        return jpath(self.dir_path, "client.crt")
 
-    run_cmd(
-        [
-            "openssl",
-            "pkcs12",
-            "-export",
-            "-out",
-            cert.client_p12_path,
-            "-inkey",
-            cert.client_key_path,
-            "-in",
-            cert.client_crt_path,
-            "-passout",
-            f"file:{cert.client_pass_path}",
-        ]
-    )
+    @property
+    def client_p12_path(self):
+        return jpath(self.dir_path, self._p12_filename)
 
-    CLIENT_P12 = "client.p12"  # TODO FIXME
-    p12_www_file = os.path.join(settings.cert_public_dir, org, cert.token, CLIENT_P12)
-    os.makedirs(os.path.dirname(p12_www_file), exist_ok=True)
-    copyfile(cert.client_p12_path, p12_www_file)
-    cert_url = f"{settings.cert_public_dir}/{org}/{cert.token}/{CLIENT_P12}"
-
-    send_email(partner, certificate, cert_url)
-    send_sms(partner, certificate.name, password)
-    return certificate
+    @property
+    def client_pass_path(self):
+        return jpath(self.dir_path, "client.pass")
 
 
-def find_certificate_index(org, search: str):
-    # Search is either subject or serial
+class Authority:
+    CRL_FILE = "client.crl"  # Created if it does not exist
+    CRLNUM_FILE = "crlnumber"  # echo "01" > ca/crlnumber
+    INDEX_FILE = "index.txt"
+    OPENSSL_CONF = "openssl.cnf"
 
-    authority = settings.authority(org)
-    with open(authority.index_file_path) as f:
-        index_lines = f.readlines()
-        certificate = None
-        for line in index_lines:
-            line = line.strip()
-            if not line.startswith("V"):
-                # Only search in valid certificates
-                continue
-            if f"\t{search}" in line:
-                columns = re.split("\t", line)
-                if search not in [columns[3], columns[5]]:
-                    # Only search in serial and subject columns
+    CERT_BASE_DIR: DirectoryPath = "./ca/certs"
+
+    def __init__(self, settings, name):
+        super().__init__()
+        self.settings = settings
+        self.name = name
+        self.dir_path = jpath(self.settings.pki_dir, self.name)
+
+    @property
+    def openssl_conf_path(self):
+        return jpath(self.dir_path, self.OPENSSL_CONF)
+
+    @property
+    def crl_file_path(self):
+        return jpath(self.dir_path, self.CRL_FILE)
+
+    def get_cert_path(self, serial):
+        return jpath(self.dir_path, "newcerts", f"{serial}.pem")
+
+    @property
+    def index_file_path(self):
+        return jpath(self.dir_path, self.INDEX_FILE)
+
+    def new_cert(self):
+        return NewCert(self)
+
+    @property
+    def passphrase_crypt(self):
+        vals = self._read_passphrase_crypt()
+        return vals[self.name]
+
+    def _save_passphrase_crypt(self, passphrase_crypt):
+        vals = self.settings._read_passphrase_crypt()
+        vals[self.name] = passphrase_crypt
+        with open(self.settings.passphrase_path, "w") as f:
+            f.write(yaml.dump(vals))
+
+    def _config_password_and_passphrase(self, password, passphrase):
+        iv = Random.new().read(AES.block_size)
+        cipher = AES.new(password.encode("utf-8"), AES.MODE_CFB, iv)
+        passphrase_crypt = iv + cipher.encrypt(passphrase.encode("utf-8"))
+        htPass = HtpasswdFile(self.settings.htpasswd_path)
+        htPass.set_password(self.name, password)
+        htPass.save()
+        self._save_passphrase_crypt(passphrase_crypt.hex())
+
+    def generate_directory(self):
+        if os.path.exists(self.dir_path):
+            raise ValueError(f"Directory {self.dir_path} already exist")
+
+        # Init necessary directory
+        for path in [
+            self.dir_path,
+            jpath(self.dir_path, "private"),
+            jpath(self.dir_path, "newcerts"),
+        ]:
+            if not os.path.exists(path):
+                os.makedirs(path)
+
+        # Init needed empty file if missing
+        for file_path in [
+            self.settings.passphrase_path,
+            self.settings.htpasswd_path,
+            self.index_file_path,
+        ]:
+            if not os.path.exists(file_path):
+                open(file_path, "a").close()
+
+        # Create crlnumber file
+        with open(jpath(self.dir_path, "crlnumber"), "w") as f:
+            f.write("01")
+
+    def generate_openssl_config(self):
+        with open(self.openssl_conf_path, "w") as f:
+            f.write(
+                f"dir = {self.dir_path}\n" f".include {self.settings.openssl_conf_path}"
+            )
+
+    def generate_private_key_and_ca(self, password, passphrase, subject):
+        self._config_password_and_passphrase(password, passphrase)
+
+        # Generate private key
+        pkey_path = jpath(self.dir_path, "private", "cakey.pem")
+        careq_path = jpath(self.dir_path, "private", "careq.pem")
+        run_cmd(["openssl", "genrsa", "-out", pkey_path, "4096"])
+
+        # Create Request Certificat
+        run_cmd(
+            [
+                "openssl",
+                "req",
+                "-new",
+                "-key",
+                pkey_path,
+                "-out",
+                careq_path,
+                "-passin",
+                f"pass:{passphrase}",
+                "-subj",
+                subject,
+            ]
+        )
+
+        # Create the Certificat Authority
+        run_cmd(
+            [
+                "openssl",
+                "ca",
+                "-config",
+                self.openssl_conf_path,
+                "-create_serial",
+                "-out",
+                jpath(self.dir_path, "cacert.pem"),
+                "-days",
+                "3650",  # TODO maybe make it configurable
+                "-batch",
+                "-key",
+                passphrase,
+                "-keyfile",
+                pkey_path,
+                "-selfsign",
+                "-extensions",
+                "v3_ca",
+                "-infiles",
+                careq_path,
+            ]
+        )
+
+    def send_email(self, partner, certificate, cert_url: HttpUrl):
+        body_text = EMAIL_BODY_TEXT.format(
+            partner=partner,
+            certificate=certificate,
+            cert_url=cert_url,
+            settings=self.settings,
+        )
+        body_html = EMAIL_BODY_HTML.format(
+            partner=partner,
+            certificate=certificate,
+            cert_url=cert_url,
+            settings=self.settings,
+        )
+
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = self.settings.smtp.email_subject
+            msg["From"] = self.settings.smtp.email_from
+            msg["To"] = partner.email
+            msg["Cc"] = self.settings.smtp.email_cc or ""
+            part1 = MIMEText(body_text, "plain", "utf-8")
+            part2 = MIMEText(body_html, "html", "utf-8")
+            msg.attach(part1)
+            msg.attach(part2)
+            server = smtplib.SMTP_SSL(self.settings.smtp.host, self.settings.smtp.port)
+            server.ehlo()
+            server.login(
+                self.settings.smtp.user, self.settings.smtp.password.get_secret_value()
+            )
+            server.sendmail(
+                self.settings.smtp.email_from, partner.email, msg.as_string()
+            )
+            logger.info(f"email sent to: {partner.email}")
+        except Exception as err:
+            logger.error(f"email not sent: {err}")
+
+    def send_sms(self, partner, cert_name, password):
+        message = SMS_BODY.format(
+            cert_name=cert_name[-60:], password=password, settings=self.settings
+        )
+        try:
+            params = {
+                "smsAccount": self.settings.sms.account,
+                "login": self.settings.sms.login,
+                "password": self.settings.sms.password.get_secret_value(),
+                "from": self.settings.provider_name.upper(),
+                "to": partner.phone,
+                "message": message,
+                "noStop": 1,
+            }
+            params = urllib.parse.urlencode(params)
+            url = f"{self.settings.sms.url}?{params}"
+            requests.get(url)
+            logger.info(f"SMS sent to {partner.phone}")
+        except Exception as err:
+            logger.error(f"SMS not sent to {partner.phone}: {err}")
+
+    def create_certificate(
+        self,
+        certificate: Certificate,
+        partner: Partner,
+        location: Localisation,
+        passphrase: str,
+    ):
+        cert = self.new_cert()
+        os.makedirs(cert.dir_path, 0o744)
+
+        subject = (
+            f"/C=FR/ST={sanitize(location.zipcode)}/O={sanitize(location.company)}"
+            f"/OU={sanitize(location.name)}/CN={sanitize(certificate.name)}"
+            f"/emailAddress={partner.email}"
+        ).encode("ascii", "replace")
+
+        run_cmd(
+            [
+                "openssl",
+                "req",
+                "-nodes",
+                "-newkey",
+                "rsa:4096",
+                "-keyout",
+                cert.client_key_path,
+                "-out",
+                cert.client_csr_path,
+                "-subj",
+                subject,
+            ]
+        )
+
+        run_cmd(
+            [
+                "openssl",
+                "ca",
+                "-batch",
+                "-config",
+                self.openssl_conf_path,
+                "-in",
+                cert.client_csr_path,
+                "-days",
+                "1095",  # 365 * 3 = 3 years TODO: use value in ssl config
+                "-passin",
+                "pass:" + passphrase,
+            ]
+        )
+
+        certificate = self.find_certificate_index(subject.decode("ascii"))
+        src = self.get_cert_path(certificate.serial)
+        if not src:
+            raise Exception(f"Cert not found ({subject})")
+        else:
+            copyfile(src, cert.client_crt_path)
+
+        password = random_string(8)
+        with os.fdopen(
+            os.open(cert.client_pass_path, os.O_WRONLY | os.O_CREAT, 0o700), "w"
+        ) as f:
+            f.write(password)
+
+        run_cmd(
+            [
+                "openssl",
+                "pkcs12",
+                "-export",
+                "-out",
+                cert.client_p12_path,
+                "-inkey",
+                cert.client_key_path,
+                "-in",
+                cert.client_crt_path,
+                "-passout",
+                f"file:{cert.client_pass_path}",
+            ]
+        )
+
+        p12_www_file = os.path.join(
+            self.settings.cert_public_dir, self.name, cert.token, cert._p12_filename
+        )
+        os.makedirs(os.path.dirname(p12_www_file), exist_ok=True)
+        copyfile(cert.client_p12_path, p12_www_file)
+        cert_url = (
+            f"{self.settings.cert_public_dir}/{self.name}"
+            f"/{cert.token}/{cert._p12_filename}"
+        )
+
+        self.send_email(partner, certificate, cert_url)
+        self.send_sms(partner, certificate.name, password)
+        return certificate
+
+    def find_certificate_index(self, search: str):
+        # Search is either subject or serial
+
+        with open(self.index_file_path) as f:
+            index_lines = f.readlines()
+            certificate = None
+            for line in index_lines:
+                line = line.strip()
+                if not line.startswith("V"):
+                    # Only search in valid certificates
                     continue
-                valid_until = datetime.datetime.strptime(columns[1], "%y%m%d%H%M%SZ")
-                name = (
-                    columns[5].split("/CN=")[1].split("/")[0]
-                )  # Substring between /CN= and /
-                certificate = Certificate(
-                    serial=columns[3], valid_until=valid_until, name=name
-                )
-        if certificate:
-            return certificate
+                if f"\t{search}" in line:
+                    columns = re.split("\t", line)
+                    if search not in [columns[3], columns[5]]:
+                        # Only search in serial and subject columns
+                        continue
+                    valid_until = datetime.datetime.strptime(
+                        columns[1], "%y%m%d%H%M%SZ"
+                    )
+                    name = (
+                        columns[5].split("/CN=")[1].split("/")[0]
+                    )  # Substring between /CN= and /
+                    certificate = Certificate(
+                        serial=columns[3], valid_until=valid_until, name=name
+                    )
+            if certificate:
+                return certificate
 
+    def revoke_certificate(
+        self,
+        serial: str,
+        passphrase: SecretStr,
+    ):
+        certificate = self.find_certificate_index(serial)
+        run_cmd(
+            [
+                "openssl",
+                "ca",
+                "-revoke",
+                self.get_cert_path(certificate.serial),
+                "-config",
+                self.openssl_conf_path,
+                "-passin",
+                "pass:" + passphrase,
+            ]
+        )
+        run_cmd(
+            [
+                "openssl",
+                "ca",
+                "-gencrl",
+                "-crldays",
+                "3650",
+                "-out",
+                self.crl_file_path,
+                "-config",
+                self.openssl_conf_path,
+                "-passin",
+                "pass:" + passphrase,
+            ]
+        )
 
-def revoke_certificate(
-    org: str,
-    certificate: Certificate,
-    passphrase: SecretStr,
-):
-    authority = settings.authority(org)
-    run_cmd(
-        [
-            "openssl",
-            "ca",
-            "-revoke",
-            authority.get_cert_path(certificate.serial),
-            "-config",
-            authority.openssl_conf_path,
-            "-passin",
-            "pass:" + passphrase,
-        ]
-    )
-    run_cmd(
-        [
-            "openssl",
-            "ca",
-            "-gencrl",
-            "-crldays",
-            "3650",
-            "-out",
-            authority.crl_file_path,
-            "-config",
-            authority.openssl_conf_path,
-            "-passin",
-            "pass:" + passphrase,
-        ]
-    )
-
-    # set to False so the api response will show valid=False
-    certificate.valid = False
-    return certificate
+        # set to False so the api response will show valid=False
+        certificate.valid = False
+        return certificate

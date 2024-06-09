@@ -6,6 +6,7 @@
 import typer
 
 from .config import settings
+from .mpki import Authority
 
 app = typer.Typer(rich_markup_mode="rich")
 
@@ -23,7 +24,7 @@ def add(
     ca_email_address: str,
 ):
     # Create all necessary directory and file
-    authority = settings.authority(authority_name)
+    authority = Authority(settings, authority_name)
     authority.generate_directory()
     authority.generate_openssl_config()
     subject = (
