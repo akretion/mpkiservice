@@ -242,7 +242,6 @@ class Authority:
             self.settings.passphrase_path,
             self.settings.htpasswd_path,
             self.index_file_path,
-            self.crl_file_path,
         ]:
             if not os.path.exists(file_path):
                 open(file_path, "a").close()
@@ -304,6 +303,21 @@ class Authority:
                 "v3_ca",
                 "-infiles",
                 careq_path,
+            ]
+        )
+
+        # Generate CRL
+        run_cmd(
+            [
+                "openssl",
+                "ca",
+                "-gencrl",
+                "-out",
+                self.crl_file_path,
+                "-config",
+                self.openssl_conf_path,
+                "-passin",
+                "pass:" + passphrase,
             ]
         )
 
