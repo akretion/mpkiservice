@@ -39,18 +39,6 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(res["name"], "foo")
         self.assertTrue(res["valid"])
 
-    def test_read_certs(self):
-        res = self.create_certificat("foo")
-        response = self.client.get(
-            f"/certs/{res['serial']}", auth=("bob", "incroyableeponge")
-        )
-        self.assertEqual(response.status_code, 200)
-        res2 = response.json()
-        self.assertEqual(res2["serial"], res["serial"])
-        self.assertEqual(res2["name"], "foo")
-        self.assertEqual(res2["valid_until"], res["valid_until"])
-        self.assertTrue(res2["valid"])
-
     def test_revoke_certs(self):
         res = self.create_certificat("foo")
         serial = res["serial"]

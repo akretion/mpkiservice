@@ -60,17 +60,6 @@ def get_current_authority(credentials: HTTPBasicCredentials = Depends(security))
     return Authority(settings, org)
 
 
-@app.get("/certs/{serial}")
-async def get_cert(
-    serial: str,
-    authority: Authority = Depends(get_current_authority),
-):
-    certificate = authority.find_certificate_index(serial)
-    if not certificate:
-        raise HTTPException(status_code=404, detail="Certificate not found")
-    return certificate
-
-
 @app.post("/certs")
 async def create_cert(
     certificate: Certificate,
