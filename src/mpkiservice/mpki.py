@@ -398,8 +398,6 @@ class Authority:
                 self.openssl_conf_path,
                 "-in",
                 cert.client_csr_path,
-                "-days",
-                "1095",  # 365 * 3 = 3 years TODO: use value in ssl config
                 "-passin",
                 "pass:" + passphrase,
             ]
@@ -499,8 +497,6 @@ class Authority:
                 "openssl",
                 "ca",
                 "-gencrl",
-                "-crldays",
-                "3650",
                 "-out",
                 self.crl_file_path,
                 "-config",
