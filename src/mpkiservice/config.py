@@ -7,7 +7,7 @@ import os
 import secrets
 import string
 from subprocess import run
-from typing import Tuple, Type
+from typing import Optional, Tuple, Type
 
 import yaml
 from Crypto import Random
@@ -51,7 +51,7 @@ class SMTP(BaseModel):
     user: str
     password: SecretStr
     email_from: EmailStr
-    email_cc: EmailStr = None
+    email_cc: Optional[EmailStr] = None
     email_subject: str
 
 
