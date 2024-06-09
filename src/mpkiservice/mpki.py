@@ -131,7 +131,13 @@ def run_cmd(cmd):
     if result.returncode != 0:
         # Becarefull only show the first 4 args as there is no secret in it
         # we should never log secret
-        logger.error(f"Fail to launch cmd {cmd[0:4]}. Error : %s" % result.stderr)
+        if os.environ.get("MPKISERVICE_LOG_FULL_CMD"):
+            log_cmd = cmd
+        else:
+            log_cmd = cmd[0:4]
+        logger.error(
+            f"Fail to launch cmd {' '.join(log_cmd[0:4])}. Error : {result.stderr}"
+        )
         raise HTTPException(status_code=500)
 
 
