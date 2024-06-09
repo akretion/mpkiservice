@@ -242,6 +242,7 @@ class Authority:
             self.settings.passphrase_path,
             self.settings.htpasswd_path,
             self.index_file_path,
+            self.crl_file_path,
         ]:
             if not os.path.exists(file_path):
                 open(file_path, "a").close()
