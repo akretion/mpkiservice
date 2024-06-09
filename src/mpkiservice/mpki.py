@@ -444,8 +444,8 @@ class Authority:
         os.makedirs(os.path.dirname(p12_www_file), exist_ok=True)
         copyfile(cert.client_p12_path, p12_www_file)
         cert_url = (
-            f"{self.settings.cert_public_dir}/{self.name}"
-            f"/{cert.token}/{cert._p12_filename}"
+            f"{self.settings.base_cert_download_url}"
+            f"{self.name}/{cert.token}/{cert._p12_filename}"
         )
 
         self.send_email(partner, certificate, cert_url)
