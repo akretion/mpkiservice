@@ -121,6 +121,9 @@ class Authority:
         self._save_passphrase_crypt(passphrase_crypt.hex())
 
     def generate_directory(self):
+        if os.path.exists(self.dir_path):
+            raise ValueError(f"Directory {self.dir_path} already exist")
+
         # Init necessary directory
         for path in [
             self.dir_path,
@@ -232,7 +235,7 @@ class Settings(BaseSettings):
     sms: SMS
     cert_public_dir: DirectoryPath = "/var/www/mpki"
     pki_dir: DirectoryPath = "/opt/mpkiservice/ca"
-    provider_name: str = "Akretion"
+    provider_name: str = "Exemple"
     base_cert_download_url: HttpUrl
 
     model_config = SettingsConfigDict(
