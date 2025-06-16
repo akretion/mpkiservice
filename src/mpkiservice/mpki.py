@@ -135,9 +135,7 @@ def run_cmd(cmd):
             log_cmd = cmd
         else:
             log_cmd = cmd[0:4]
-        logger.error(
-            f"Fail to launch cmd {' '.join(log_cmd[0:4])}. Error : {result.stderr}"
-        )
+        logger.error(f"Fail to launch cmd {' '.join(log_cmd)}. Error : {result.stderr}")
         raise HTTPException(status_code=500)
 
 
@@ -437,11 +435,15 @@ class Authority:
         ) as f:
             f.write(password)
 
+        # Note -legacy is used by default to be compatible
+        # with android version inferior to 14
+        # https://stackoverflow.com/questions/71872900/installing-pcks12-certificate-in-android-wrong-password-bug
         run_cmd(
             [
                 "openssl",
                 "pkcs12",
                 "-export",
+                "-legacy",
                 "-out",
                 cert.client_p12_path,
                 "-inkey",
