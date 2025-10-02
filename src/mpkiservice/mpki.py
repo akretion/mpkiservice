@@ -37,7 +37,7 @@ from pydantic import (
     validator,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 EMAIL_BODY_TEXT = """Bonjour {partner.name},
 

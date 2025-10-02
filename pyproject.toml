@@ -39,6 +39,11 @@ test = [
     "httpx",
 ]
 
+[tool.hatch.envs.test]
+features = [
+    "test"
+]
+
 [project.urls]
 Homepage = "https://github.com/akretion/mpkiservice"
 Source = "https://github.com/akretion/mpkiservice"
