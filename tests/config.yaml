@@ -1,0 +1,16 @@
+smtp:
+  host: localhost
+  port: 25
+  user: foo
+  password: secret
+  email_from: foo@example.org
+  email_cc: bar@example.org
+  email_subject: Your super certificat
+sms:
+  url: https://example.org
+  account: foo
+  login: bar
+  password: secret
+pki_dir: ./tmp/ca
+cert_public_dir: ./tmp/public
+base_cert_download_url: https://example.org/mpki
