@@ -14,8 +14,7 @@ from .mpki import (
     Partner,
 )
 
-_logger = logging.getLogger(__name__)
-
+_logger = logging.getLogger("uvicorn.error")
 
 # When running the first add "org" the .htpasswd may no exist
 try:
